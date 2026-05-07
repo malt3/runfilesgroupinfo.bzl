@@ -4,6 +4,8 @@ load("@rules_runfiles_group//runfiles_group:lib.bzl", "lib")
 load("@rules_runfiles_group//runfiles_group:providers.bzl", "RunfilesGroupInfo", "RunfilesGroupMetadataInfo")
 load("//producer/providers:providers.bzl", "StarlarkInfo")
 
+_GROUP_PREFIX = "starlark_runfiles_group#"
+
 def _canonical_repo_name(ctx):
     return ctx.label.repo_name or "_main"
 
@@ -28,7 +30,7 @@ def _starlark_library_impl(ctx):
     for dep in ctx.attr.data:
         runfiles = runfiles.merge(dep[DefaultInfo].default_runfiles)
 
-    group_name = loadpath + ":" + ctx.label.name
+    group_name = _GROUP_PREFIX + loadpath + ":" + ctx.label.name
 
     dep_groups = lib.collect_groups(ctx.attr.deps)
     data_groups = lib.collect_groups(ctx.attr.data)

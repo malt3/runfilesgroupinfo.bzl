@@ -7,6 +7,8 @@ load("//producer/rules:starlark_library.bzl", "starlark_library")
 
 package(default_visibility = ["//visibility:public"])
 
+P = "starlark_runfiles_group#"
+
 # This is a mixin users can add to aspect_hints of a binary target to skip the interpreter group.
 skip_interpreter(name = "skip_interpreter")
 
@@ -137,11 +139,11 @@ runfiles_group_analysis_test(
     name = "test_adder_groups",
     binaries = [":adder"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "//src:lib_a",
-        "//src:lib_b",
-        "entrypoint",
+        P + "interpreter",
+        P + "std",
+        P + "//src:lib_a",
+        P + "//src:lib_b",
+        P + "entrypoint",
     ],
     overlapping_group_behavior = "error",
 )
@@ -150,9 +152,9 @@ runfiles_group_analysis_test(
     name = "test_hasher_groups",
     binaries = [":hasher"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "_main",
     ],
     overlapping_group_behavior = "error",
 )
@@ -161,11 +163,11 @@ runfiles_group_analysis_test(
     name = "test_3p_deps_demo_groups",
     binaries = [":3p_deps_demo"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "fizzbuzz",
-        "stringutil",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "fizzbuzz",
+        P + "stringutil",
+        P + "_main",
     ],
     overlapping_group_behavior = "error",
 )
@@ -176,11 +178,12 @@ runfiles_group_analysis_test(
     name = "test_adder_groups_merged",
     binaries = [":adder"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "//src:lib_a+//src:lib_b",
-        "entrypoint",
+        P + "interpreter",
+        P + "std",
+        P + "//src:lib_a+//src:lib_b",
+        P + "entrypoint",
     ],
+    group_name_prefix = P,
     max_groups = 4,
     overlapping_group_behavior = "error",
 )
@@ -192,10 +195,11 @@ runfiles_group_analysis_test(
     # so merging cannot reduce below 3.
     expected_group_count = 3,
     expected_group_names = [
-        "interpreter",
-        "std",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "_main",
     ],
+    group_name_prefix = P,
     max_groups = 2,
     overlapping_group_behavior = "error",
 )
@@ -205,11 +209,12 @@ runfiles_group_analysis_test(
     binaries = [":3p_deps_demo"],
     # fizzbuzz and stringutil (both rank 0) merge into fizzbuzz+stringutil.
     expected_group_names = [
-        "interpreter",
-        "std",
-        "fizzbuzz+stringutil",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "fizzbuzz+stringutil",
+        P + "_main",
     ],
+    group_name_prefix = P,
     max_groups = 4,
     overlapping_group_behavior = "error",
 )
@@ -229,14 +234,14 @@ runfiles_group_analysis_test(
     name = "test_merge_demo_groups",
     binaries = [":merge_demo"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "colors",
-        "limits",
-        "mathlib",
-        "templates",
-        "units",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "colors",
+        P + "limits",
+        P + "mathlib",
+        P + "templates",
+        P + "units",
+        P + "_main",
     ],
     overlapping_group_behavior = "error",
 )
@@ -247,13 +252,14 @@ runfiles_group_analysis_test(
     name = "test_merge_demo_max6",
     binaries = [":merge_demo"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "limits+units+colors",
-        "mathlib",
-        "templates",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "limits+units+colors",
+        P + "mathlib",
+        P + "templates",
+        P + "_main",
     ],
+    group_name_prefix = P,
     max_groups = 6,
     overlapping_group_behavior = "error",
 )
@@ -263,12 +269,13 @@ runfiles_group_analysis_test(
     name = "test_merge_demo_max5",
     binaries = [":merge_demo"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "limits+units+colors+mathlib",
-        "templates",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "limits+units+colors+mathlib",
+        P + "templates",
+        P + "_main",
     ],
+    group_name_prefix = P,
     max_groups = 5,
     overlapping_group_behavior = "error",
 )
@@ -278,11 +285,12 @@ runfiles_group_analysis_test(
     name = "test_merge_demo_max4",
     binaries = [":merge_demo"],
     expected_group_names = [
-        "interpreter",
-        "std",
-        "limits+units+colors+mathlib+templates",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "limits+units+colors+mathlib+templates",
+        P + "_main",
     ],
+    group_name_prefix = P,
     max_groups = 4,
     overlapping_group_behavior = "error",
 )
@@ -294,11 +302,12 @@ runfiles_group_analysis_test(
     binaries = [":merge_demo"],
     expected_group_count = 4,
     expected_group_names = [
-        "interpreter",
-        "std",
-        "limits+units+colors+mathlib+templates",
-        "_main",
+        P + "interpreter",
+        P + "std",
+        P + "limits+units+colors+mathlib+templates",
+        P + "_main",
     ],
+    group_name_prefix = P,
     max_groups = 3,
     overlapping_group_behavior = "error",
 )
