@@ -108,9 +108,9 @@ load("@rules_runfiles_group//runfiles_group:providers.bzl",
 
 providers.append(RunfilesGroupInfo(**groups))
 providers.append(RunfilesGroupMetadataInfo(groups = {
-    "interpreter": lib.group_metadata(rank = -2, do_not_merge = True),
-    "std": lib.group_metadata(rank = -1),
-    "app_code": lib.group_metadata(rank = 0, weight = 100, executable_group = True),
+    "foo_runfiles_group#interpreter": lib.group_metadata(rank = -2, do_not_merge = True),
+    "foo_runfiles_group#std": lib.group_metadata(rank = -1),
+    "foo_runfiles_group#app_code": lib.group_metadata(rank = 0, weight = 100, executable_group = True),
 }))
 ```
 
@@ -139,6 +139,22 @@ There may be different preferences for splitting files into groups. A good way t
 > [!CAUTION]
 > Merging groups by merging their `depset`s is cheap. Calling `.to_list()` on a depset is expensive and should be avoided during analysis. Build group hierarchies purely through `depset(transitive = [...])`.
 
+### Naming groups
+
+Group names are arbitrary strings and live in a shared namespace across all `RunfilesGroupInfo` providers merged into the same binary. If two rulesets independently define a group called `"interpreter"` — say, one for Node.js and one for Python — those groups will be merged together, which may be undesirable.
+
+To avoid this, **prefix all group names with a string unique to your ruleset**, separated by a delimiter like `#`:
+
+```starlark
+groups["my_rules_runfiles_group#interpreter"] = ...
+groups["my_rules_runfiles_group#std"] = ...
+groups["my_rules_runfiles_group#" + loadpath + ":" + ctx.label.name] = ...
+```
+
+This ensures that `my_rules_runfiles_group#interpreter` and `other_rules_runfiles_group#interpreter` remain distinct, even when both rulesets contribute groups to the same binary target.
+
+When merging groups (e.g., in `merge_to_limit`), pass a custom `merged_group_name` callback that strips the prefix from the second group name before joining. This keeps merged names readable — `my_rules_runfiles_group#foo+bar` instead of `my_rules_runfiles_group#foo+my_rules_runfiles_group#bar`.
+
 ### Handling `deps` and `data`
 
 Most rules have the attributes `deps` and `data`. You should implement support for them carefully.
@@ -156,13 +172,13 @@ data_groups = lib.collect_groups(ctx.attr.data)
 groups = {}
 groups.update(dep_groups.groups)
 groups.update(data_groups.groups)
-groups["app_code"] = depset(my_own_files, transitive = data_groups.ungrouped)
+groups["foo_runfiles_group#app_code"] = depset(my_own_files, transitive = data_groups.ungrouped)
 
 metadata = lib.merge_metadata(dep_groups.metadata, data_groups.metadata)
 # executable_group has been stripped from dep metadata by collect_groups.
 # Set it on our own group instead:
 metadata = lib.merge_metadata(metadata, RunfilesGroupMetadataInfo(groups = {
-    "app_code": lib.group_metadata(executable_group = True),
+    "foo_runfiles_group#app_code": lib.group_metadata(executable_group = True),
 }))
 ```
 

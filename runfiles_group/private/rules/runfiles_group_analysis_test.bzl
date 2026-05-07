@@ -29,6 +29,14 @@ def _indent(text):
 def _join_group_names(lighter_name, _lighter_weight, heavier_name, _heavier_weight):
     return lighter_name + "+" + heavier_name
 
+def _make_join_group_names(prefix):
+    def _join(lighter_name, _lighter_weight, heavier_name, _heavier_weight):
+        stripped = heavier_name
+        if stripped.startswith(prefix):
+            stripped = stripped[len(prefix):]
+        return lighter_name + "+" + stripped
+    return _join
+
 def _test_one(ctx, binary_attr):
     issues = []
     success = True
@@ -93,11 +101,12 @@ def _test_one(ctx, binary_attr):
     metadata = binary_attr[RunfilesGroupMetadataInfo] if RunfilesGroupMetadataInfo in binary_attr else None
 
     if ctx.attr.max_groups >= 0:
+        join_fn = _make_join_group_names(ctx.attr.group_name_prefix) if ctx.attr.group_name_prefix else _join_group_names
         merged = lib.merge_to_limit(
             rgi,
             metadata,
             max_groups = ctx.attr.max_groups,
-            merged_group_name = _join_group_names,
+            merged_group_name = join_fn,
         )
         rgi = merged.runfiles_group_info
         metadata = merged.runfiles_group_metadata_info
@@ -210,6 +219,13 @@ Use this when merging cannot reach max_groups (e.g., due to do_not_merge or rank
 to assert the actual reachable count. -1 means no check (the test fails if group_count > max_groups instead).
 """,
             default = -1,
+        ),
+        "group_name_prefix": attr.string(
+            doc = """\
+If set, merged group names will strip this prefix from the second (heavier) group name
+before joining with '+'. This avoids repeating a common prefix in merged names.
+For example, with prefix "p#", merging "p#foo" and "p#bar" produces "p#foo+bar" instead of "p#foo+p#bar".
+""",
         ),
     },
     analysis_test = True,

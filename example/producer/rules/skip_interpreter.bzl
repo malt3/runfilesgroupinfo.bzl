@@ -6,16 +6,18 @@ load(
     "RunfilesGroupTransformInfo",
 )
 
+_GROUP_PREFIX = "starlark_runfiles_group#"
+
 def _skip_interpreter_transform(runfiles_group_info, runfiles_group_metadata_info):
     new_groups = {}
     for group_name in lib.group_names(runfiles_group_info):
-        if group_name == "interpreter":
+        if group_name == _GROUP_PREFIX + "interpreter":
             continue
         new_groups[group_name] = getattr(runfiles_group_info, group_name)
 
     new_metadata = None
     if runfiles_group_metadata_info != None:
-        new_meta_groups = {k: v for k, v in runfiles_group_metadata_info.groups.items() if k != "interpreter"}
+        new_meta_groups = {k: v for k, v in runfiles_group_metadata_info.groups.items() if k != _GROUP_PREFIX + "interpreter"}
         if new_meta_groups:
             new_metadata = RunfilesGroupMetadataInfo(groups = new_meta_groups)
 
