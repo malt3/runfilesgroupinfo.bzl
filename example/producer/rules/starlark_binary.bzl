@@ -122,30 +122,29 @@ def _starlark_binary_impl(ctx):
     if ctx.attr.runfiles_grouping != "disabled":
         groups = {}
 
-        dep_groups = lib.collect_groups(ctx.attr.deps)
-        data_groups = lib.collect_groups(ctx.attr.data)
+        dep_groups = lib.collect_groups(ctx, ctx.attr.deps)
+        data_groups = lib.collect_groups(ctx, ctx.attr.data)
         dep_metadata = lib.merge_metadata(dep_groups.metadata, data_groups.metadata)
 
         metadata = {}
         own_repo = ctx.attr.repository
 
         # Special group: interpreter
-        groups[_GROUP_PREFIX + "interpreter"] = depset(
-            [interpreter_exe],
-            transitive = [interpreter_info.default_runfiles.files],
-        )
+        groups[_GROUP_PREFIX + "interpreter"] = ctx.runfiles(
+            files = [interpreter_exe],
+        ).merge(interpreter_info.default_runfiles)
         metadata[_GROUP_PREFIX + "interpreter"] = lib.group_metadata(rank = -2, do_not_merge = True)
 
         # Special group: std
-        groups[_GROUP_PREFIX + "std"] = stdlib[DefaultInfo].default_runfiles.files
+        groups[_GROUP_PREFIX + "std"] = stdlib[DefaultInfo].default_runfiles
         metadata[_GROUP_PREFIX + "std"] = lib.group_metadata(rank = -1)
-
-        entrypoint_files = depset([output, entrypoint, loadmap, properties])
 
         # Dep groups
         if ctx.attr.runfiles_grouping == "by_target":
             groups.update(data_groups.groups)
-            groups[_GROUP_PREFIX + "entrypoint"] = depset(transitive = [entrypoint_files] + data_groups.ungrouped)
+            groups[_GROUP_PREFIX + "entrypoint"] = ctx.runfiles(
+                files = [output, entrypoint, loadmap, properties],
+            )
             metadata[_GROUP_PREFIX + "entrypoint"] = lib.group_metadata(rank = 2, executable_group = True)
             for name in data_groups.groups:
                 dep_weight = _get_dep_weight(dep_metadata, name)
@@ -153,8 +152,8 @@ def _starlark_binary_impl(ctx):
                     metadata[name] = lib.group_metadata(rank = 1, weight = dep_weight)
                 elif dep_weight != None:
                     metadata[name] = lib.group_metadata(weight = dep_weight)
-            for name, files in dep_groups.groups.items():
-                groups[name] = files
+            for name, rf in dep_groups.groups.items():
+                groups[name] = rf
                 dep_weight = _get_dep_weight(dep_metadata, name)
                 if _extract_repo(name) == own_repo:
                     metadata[name] = lib.group_metadata(rank = 1, weight = dep_weight)
@@ -162,22 +161,24 @@ def _starlark_binary_impl(ctx):
                     metadata[name] = lib.group_metadata(weight = dep_weight)
 
         elif ctx.attr.runfiles_grouping == "by_repo":
-            repo_depsets = {}
+            repo_runfiles = {}
             repo_weights = {}
-            repo_depsets[own_repo] = [entrypoint_files] + data_groups.ungrouped
+            repo_runfiles[own_repo] = [ctx.runfiles(
+                files = [output, entrypoint, loadmap, properties],
+            )]
             all_dep_groups = {}
             all_dep_groups.update(data_groups.groups)
             all_dep_groups.update(dep_groups.groups)
-            for name, files in all_dep_groups.items():
+            for name, rf in all_dep_groups.items():
                 repo = _extract_repo(name)
-                if repo not in repo_depsets:
-                    repo_depsets[repo] = []
-                repo_depsets[repo].append(files)
+                if repo not in repo_runfiles:
+                    repo_runfiles[repo] = []
+                repo_runfiles[repo].append(rf)
                 w = _get_dep_weight(dep_metadata, name)
                 if w != None:
                     repo_weights[repo] = repo_weights.get(repo, 0) + w
-            for repo, ds in repo_depsets.items():
-                groups[_GROUP_PREFIX + (repo or "_main")] = depset(transitive = ds)
+            for repo, rs in repo_runfiles.items():
+                groups[_GROUP_PREFIX + (repo or "_main")] = rs[0] if len(rs) == 1 else rs[0].merge_all(rs[1:])
                 if repo == own_repo:
                     metadata[_GROUP_PREFIX + (repo or "_main")] = lib.group_metadata(rank = 1, weight = repo_weights.get(repo, None), executable_group = True)
                 elif repo in repo_weights:
@@ -189,13 +190,19 @@ def _starlark_binary_impl(ctx):
     return providers
 
 def _extract_repo(group_name):
-    """Extracts the friendly repo name from a loadpath-based group name.
+    """Extracts the friendly repo name from a group name.
 
     "starlark_runfiles_group#@fizzbuzz//:fizzbuzz" -> "fizzbuzz"
     "starlark_runfiles_group#//src:lib_a" -> ""
+    "data#@@fizzbuzz//pkg:target" -> "fizzbuzz"
+    "data#@@//src:a.txt" -> ""
     """
     if group_name.startswith(_GROUP_PREFIX):
         group_name = group_name[len(_GROUP_PREFIX):]
+    elif group_name.startswith("data#"):
+        group_name = group_name[len("data#"):]
+    if group_name.startswith("@@"):
+        group_name = group_name[1:]
     if not group_name.startswith("@"):
         return ""
     idx = group_name.find("//")

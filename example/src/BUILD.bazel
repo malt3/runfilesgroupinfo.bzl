@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
 load("@rules_runfiles_group//runfiles_group:runfiles_group_analysis_test.bzl", "runfiles_group_analysis_test")
 load("//consumer/rules:fake_package.bzl", "fake_package")
 load("//producer/rules:skip_interpreter.bzl", "skip_interpreter")
+load("//src:group_names.bzl", "IRS_F1040")
 load("//producer/rules:starlark_binary.bzl", "starlark_binary")
 load("//producer/rules:starlark_library.bzl", "starlark_library")
 
@@ -141,6 +142,8 @@ runfiles_group_analysis_test(
     expected_group_names = [
         P + "interpreter",
         P + "std",
+        "data#@@//src:a.txt",
+        "data#@@//src:b.txt",
         P + "//src:lib_a",
         P + "//src:lib_b",
         P + "entrypoint",
@@ -154,6 +157,7 @@ runfiles_group_analysis_test(
     expected_group_names = [
         P + "interpreter",
         P + "std",
+        P + IRS_F1040,
         P + "_main",
     ],
     overlapping_group_behavior = "error",
@@ -180,7 +184,7 @@ runfiles_group_analysis_test(
     expected_group_names = [
         P + "interpreter",
         P + "std",
-        P + "//src:lib_a+//src:lib_b",
+        "data#@@//src:a.txt+data#@@//src:b.txt+//src:lib_a+//src:lib_b",
         P + "entrypoint",
     ],
     group_name_prefix = P,
@@ -191,12 +195,13 @@ runfiles_group_analysis_test(
 runfiles_group_analysis_test(
     name = "test_hasher_groups_merged",
     binaries = [":hasher"],
-    # All groups are alone in their rank or do_not_merge,
-    # so merging cannot reduce below 3.
-    expected_group_count = 3,
+    # interpreter has do_not_merge, and the remaining groups are each alone
+    # in their rank, so merging cannot reduce below 4.
+    expected_group_count = 4,
     expected_group_names = [
         P + "interpreter",
         P + "std",
+        P + IRS_F1040,
         P + "_main",
     ],
     group_name_prefix = P,
