@@ -11,7 +11,7 @@ load(
 _FakePackageGroupsInfo = provider(
     doc = "Resolved and ordered runfiles groups from the aspect pipeline.",
     fields = {
-        "ordered_groups": "list of struct(name, files, metadata) entries.",
+        "ordered_groups": "list of struct(name, runfiles, metadata) entries.",
     },
 )
 
@@ -52,14 +52,14 @@ def _fake_package_impl(ctx):
     # Build JSON debug output (list to preserve order).
     groups_list = []
     for entry in ordered:
-        groups_list.append({"group": entry.name, "files": [f.path for f in entry.files.to_list()]})
+        groups_list.append({"group": entry.name, "files": [f.path for f in entry.runfiles.files.to_list()]})
     json_file = ctx.actions.declare_file(ctx.label.name + ".json")
     ctx.actions.write(json_file, json.encode(groups_list))
 
     # Build OutputGroupInfo.
     output_groups = {}
     for entry in ordered:
-        output_groups[entry.name] = entry.files
+        output_groups[entry.name] = entry.runfiles.files
 
     return [
         DefaultInfo(files = depset([json_file])),

@@ -26,6 +26,25 @@ _INDENT = "    "
 def _indent(text):
     return "\n".join([_INDENT + line for line in text.split("\n")])
 
+def _get_files(rf):
+    return rf.files
+
+def _get_empty_filenames(rf):
+    return rf.empty_filenames
+
+def _get_symlinks(rf):
+    return rf.symlinks
+
+def _get_root_symlinks(rf):
+    return rf.root_symlinks
+
+_RUNFILES_COMPONENTS = [
+    ("files", _get_files),
+    ("empty_filenames", _get_empty_filenames),
+    ("symlinks", _get_symlinks),
+    ("root_symlinks", _get_root_symlinks),
+]
+
 def _join_group_names(lighter_name, _lighter_weight, heavier_name, _heavier_weight):
     return lighter_name + "+" + heavier_name
 
@@ -49,52 +68,54 @@ def _test_one(ctx, binary_attr):
     # Note: the following calculations are expensive.
     # This analysis test is only meant to be used to test the correctness of
     # RunfilesGroupInfo emitting rules. Do not use for all of your *_binary targets in prod.
-    all_default_runfiles = sets.make(default_runfiles.files.to_list())
-    all_grouped_runfiles = sets.make()
-    for group_depset_name in lib.group_names(runfiles_group_info):
-        group_depset = getattr(runfiles_group_info, group_depset_name)
-        for file_from_group in group_depset.to_list():
-            sets.insert(all_grouped_runfiles, file_from_group)
+    group_names = lib.group_names(runfiles_group_info)
 
-    # The most important property of RunfilesGroupInfo:
-    # The union of all runfiles groups must result in the same set of files as DefaultInfo.default_runfiles
-    runfiles_match = sets.is_equal(all_default_runfiles, all_grouped_runfiles)
-    if not runfiles_match:
-        success = False
-        missing_from_groups = sets.difference(all_default_runfiles, all_grouped_runfiles)
-        extra_in_groups = sets.difference(all_grouped_runfiles, all_default_runfiles)
-        if sets.length(missing_from_groups) > 0:
-            issues.append(
-                "files in default_runfiles missing from RunfilesGroupInfo:\n" +
-                "\n".join([_INDENT + f.short_path for f in sets.to_list(missing_from_groups)]),
-            )
-        if sets.length(extra_in_groups) > 0:
-            issues.append(
-                "files in RunfilesGroupInfo missing from default_runfiles:\n" +
-                "\n".join([_INDENT + f.short_path for f in sets.to_list(extra_in_groups)]),
-            )
+    # Check completeness and overlap for each runfiles component.
+    for component_name, get_depset in _RUNFILES_COMPONENTS:
+        all_default = sets.make(get_depset(default_runfiles).to_list())
+        all_grouped = sets.make()
+        for gn in group_names:
+            group_rf = getattr(runfiles_group_info, gn)
+            for item in get_depset(group_rf).to_list():
+                sets.insert(all_grouped, item)
 
-    if ctx.attr.overlapping_group_behavior != "ignore":
-        group_names = lib.group_names(runfiles_group_info)
-        for i in range(len(group_names)):
-            group_i = sets.make(getattr(runfiles_group_info, group_names[i]).to_list())
-            for j in range(i + 1, len(group_names)):
-                group_j = sets.make(getattr(runfiles_group_info, group_names[j]).to_list())
-                overlap = sets.intersection(group_i, group_j)
-                if sets.length(overlap) > 0:
-                    msg = (
-                        "groups '{}' and '{}' overlap:\n".format(
-                            group_names[i],
-                            group_names[j],
-                        ) +
-                        "\n".join([_INDENT + f.short_path for f in sets.to_list(overlap)])
-                    )
-                    if ctx.attr.overlapping_group_behavior == "error":
-                        success = False
-                        issues.append(msg)
-                    else:
-                        # buildifier: disable=print
-                        print("WARNING [{}]: {}".format(binary_attr.label, msg))
+        runfiles_match = sets.is_equal(all_default, all_grouped)
+        if not runfiles_match:
+            success = False
+            missing_from_groups = sets.difference(all_default, all_grouped)
+            extra_in_groups = sets.difference(all_grouped, all_default)
+            if sets.length(missing_from_groups) > 0:
+                issues.append(
+                    "{} in default_runfiles missing from RunfilesGroupInfo:\n".format(component_name) +
+                    "\n".join([_INDENT + str(item) for item in sets.to_list(missing_from_groups)]),
+                )
+            if sets.length(extra_in_groups) > 0:
+                issues.append(
+                    "{} in RunfilesGroupInfo missing from default_runfiles:\n".format(component_name) +
+                    "\n".join([_INDENT + str(item) for item in sets.to_list(extra_in_groups)]),
+                )
+
+        if ctx.attr.overlapping_group_behavior != "ignore":
+            for i in range(len(group_names)):
+                group_i = sets.make(get_depset(getattr(runfiles_group_info, group_names[i])).to_list())
+                for j in range(i + 1, len(group_names)):
+                    group_j = sets.make(get_depset(getattr(runfiles_group_info, group_names[j])).to_list())
+                    overlap = sets.intersection(group_i, group_j)
+                    if sets.length(overlap) > 0:
+                        msg = (
+                            "{}: groups '{}' and '{}' overlap:\n".format(
+                                component_name,
+                                group_names[i],
+                                group_names[j],
+                            ) +
+                            "\n".join([_INDENT + str(item) for item in sets.to_list(overlap)])
+                        )
+                        if ctx.attr.overlapping_group_behavior == "error":
+                            success = False
+                            issues.append(msg)
+                        else:
+                            # buildifier: disable=print
+                            print("WARNING [{}]: {}".format(binary_attr.label, msg))
 
     # Apply the full resolution protocol (merge + ordering) and check expected group names.
     rgi = runfiles_group_info
@@ -183,10 +204,11 @@ def _runfiles_group_analysis_test_impl(ctx):
 runfiles_group_analysis_test = rule(
     implementation = _runfiles_group_analysis_test_impl,
     doc = """\
-Checks that RunfilesGroupInfo is well formed by comparing the runfiles of the executable (DefaultInfo.default_runfiles.files)
+Checks that RunfilesGroupInfo is well formed by comparing all runfiles components
+(files, empty_filenames, symlinks, root_symlinks) of DefaultInfo.default_runfiles
 with the union of all runfiles from RunfilesGroupInfo.
 
-Additionally, it can warn about files appearing in multiple groups (overlapping),
+Additionally, it can warn about entries appearing in multiple groups (overlapping),
 verify the expected ordered group names after applying the full resolution protocol,
 and optionally apply merge-to-limit before ordering.
 """,
@@ -198,7 +220,7 @@ and optionally apply merge-to-limit before ordering.
             doc = "List of *_binary targets to test.",
         ),
         "overlapping_group_behavior": attr.string(
-            doc = "How to handle overlapping groups (the same file being present in more than one group).",
+            doc = "How to handle overlapping groups (the same entry being present in more than one group).",
             default = "warn",
             values = ["warn", "ignore", "error"],
         ),

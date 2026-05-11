@@ -4,8 +4,8 @@ lib.group_names(runfiles_group_info)
     Returns the list of group names in a RunfilesGroupInfo instance.
 
 lib.ordered_groups(runfiles_group_info, metadata_info = None)
-    Returns a list of struct(name, files, metadata) entries, ordered by rank
-    (ascending). name is the group name (string), files is depset[File],
+    Returns a list of struct(name, runfiles, metadata) entries, ordered by rank
+    (ascending). name is the group name (string), runfiles is a runfiles object,
     and metadata is the group_metadata struct (or None if no explicit
     metadata exists for that group).
 
@@ -35,20 +35,23 @@ lib.merge_metadata(*metadatas)
     Dict-merges any number of RunfilesGroupMetadataInfo instances (or None).
     Returns RunfilesGroupMetadataInfo or None. Per-key last-wins.
 
-lib.collect_groups(deps, *, strip_executable_group = True)
+lib.collect_groups(ctx, deps, *, strip_executable_group = True)
     Extracts RunfilesGroupInfo and RunfilesGroupMetadataInfo from a list of
     dependency targets. For deps providing RunfilesGroupInfo, extracts all
-    groups and metadata. For deps without it, collects
-    DefaultInfo.default_runfiles.files as ungrouped.
+    groups and metadata. For deps without it, creates a named group
+    "data#<canonical label>" whose value is a runfiles object combining
+    DefaultInfo.files and DefaultInfo.default_runfiles. This means that if
+    two parts of the dependency graph share the same data dep, they produce
+    the same group name — the binary-level dict merge naturally deduplicates
+    the group so the files are recorded only once.
     If strip_executable_group is True (default), the executable_group bit
     is cleared on all collected metadata entries. This is the correct
     default when collecting from data deps: the executable_group annotation
     is only meaningful for the top-level *_binary target, not for binaries
     that appear as data dependencies of another binary.
-    Returns struct(groups, metadata, ungrouped) where:
-      groups: dict[str, depset[File]]
+    Returns struct(groups, metadata) where:
+      groups: dict[str, runfiles]
       metadata: RunfilesGroupMetadataInfo or None
-      ungrouped: list[depset[File]]
 """
 
 load("@bazel_features//:features.bzl", "bazel_features")
@@ -89,7 +92,7 @@ def _ordered_groups(runfiles_group_info, runfiles_group_metadata_info = None):
     return [
         struct(
             name = name,
-            files = getattr(runfiles_group_info, name),
+            runfiles = getattr(runfiles_group_info, name),
             metadata = (
                 runfiles_group_metadata_info.groups[name]
                 if runfiles_group_metadata_info != None and name in runfiles_group_metadata_info.groups
@@ -194,7 +197,7 @@ def _merge_to_limit(runfiles_group_info, runfiles_group_metadata_info = None, *,
 
     flat = {}
     for name, ds in groups.items():
-        flat[name] = ds[0] if len(ds) == 1 else depset(transitive = ds)
+        flat[name] = ds[0] if len(ds) == 1 else ds[0].merge_all(ds[1:])
     merged_rgi = RunfilesGroupInfo(**flat)
     merged_metadata = RunfilesGroupMetadataInfo(groups = meta) if meta else runfiles_group_metadata_info
     return struct(
@@ -216,7 +219,7 @@ def _merge_metadata(*metadatas):
             result = RunfilesGroupMetadataInfo(groups = merged)
     return result
 
-def _collect_groups(deps, *, strip_executable_group = True):
+def _collect_groups(ctx, deps, *, strip_executable_group = True):
     groups = {}
     metadata = None
     ungrouped = []
@@ -227,7 +230,11 @@ def _collect_groups(deps, *, strip_executable_group = True):
             if RunfilesGroupMetadataInfo in dep:
                 metadata = _merge_metadata(metadata, dep[RunfilesGroupMetadataInfo])
         else:
-            ungrouped.append(depset(transitive = [dep[DefaultInfo].files, dep[DefaultInfo].default_runfiles.files]))
+            ungrouped.append(("data#" + str(dep.label), dep))
+    for group_name, dep in ungrouped:
+        groups[group_name] = ctx.runfiles(
+            transitive_files = dep[DefaultInfo].files,
+        ).merge_all([dep[DefaultInfo].default_runfiles])
     if strip_executable_group and metadata != None:
         needs_strip = False
         for entry in metadata.groups.values():
@@ -246,7 +253,7 @@ def _collect_groups(deps, *, strip_executable_group = True):
                 else:
                     stripped[name] = entry
             metadata = RunfilesGroupMetadataInfo(groups = stripped)
-    return struct(groups = groups, metadata = metadata, ungrouped = ungrouped)
+    return struct(groups = groups, metadata = metadata)
 
 lib = struct(
     group_metadata = group_metadata,
